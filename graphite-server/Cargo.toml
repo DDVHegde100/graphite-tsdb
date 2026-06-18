@@ -1,0 +1,25 @@
+[package]
+name = "graphite-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "WebSocket and HTTP tick ingestion server for Graphite TSDB"
+publish = false
+
+[[bin]]
+name = "graphite-server"
+path = "src/main.rs"
+
+[dependencies]
+graphite = { workspace = true, features = ["cold-tier"] }
+axum = { version = "0.7", features = ["ws", "json"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+clap.workspace = true
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+futures-util = "0.3"
