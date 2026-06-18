@@ -6,8 +6,12 @@ license.workspace = true
 authors.workspace = true
 description = "Embeddable time-series database for financial tick data"
 
+[features]
+default = []
+cold-tier = ["graphite-core/cold-tier"]
+
 [dependencies]
-graphite-core.workspace = true
+graphite-core = { workspace = true, features = ["cold-tier"] }
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true

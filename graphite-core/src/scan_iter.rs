@@ -9,6 +9,7 @@ use crate::types::{Column, SymbolId, Tick, TimestampNs};
 use parking_lot::RwLock;
 use std::cmp::Ordering;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// Parameters for a streaming scan.
 #[derive(Debug, Clone)]
@@ -31,6 +32,8 @@ pub struct ScanStream {
     params: ScanParams,
     cache: SharedBlockCache,
     last_key: Option<(SymbolId, TimestampNs)>,
+    #[cfg(feature = "cold-tier")]
+    cold_tier: Option<Arc<crate::cold_tier::ColdTier>>,
 }
 
 impl ScanStream {
@@ -40,6 +43,7 @@ impl ScanStream {
         symbol_dict: &SymbolDictionary,
         params: ScanParams,
         cache: SharedBlockCache,
+        #[cfg(feature = "cold-tier")] cold_tier: Option<Arc<crate::cold_tier::ColdTier>>,
     ) -> Self {
         let mut memtable_ticks: Vec<Tick> = memtable
             .iter()
@@ -77,6 +81,8 @@ impl ScanStream {
             params,
             cache,
             last_key: None,
+            #[cfg(feature = "cold-tier")]
+            cold_tier,
         }
     }
 
@@ -86,6 +92,13 @@ impl ScanStream {
         }
         let path = self.sstable_paths[self.sstable_idx].clone();
         self.sstable_idx += 1;
+
+        #[cfg(feature = "cold-tier")]
+        if let Some(cold) = &self.cold_tier {
+            if !path.exists() {
+                let _ = cold.ensure_local(&path);
+            }
+        }
 
         if let Ok(mut table) = SsTable::open(&path) {
             let ticks = table.scan(

@@ -17,6 +17,12 @@ parking_lot.workspace = true
 tokio.workspace = true
 rand.workspace = true
 zstd = "0.13"
+object_store = { version = "0.13", optional = true, default-features = false, features = ["aws", "fs"] }
+url = { version = "2", optional = true }
+
+[features]
+default = []
+cold-tier = ["object_store", "url"]
 
 [dev-dependencies]
 tempfile = "3"
