@@ -192,7 +192,9 @@ graphiite/
 ├── graphite/               # DB API + GQL
 │   └── src/gql/            # Parser, AST, executor
 ├── graphite-py/            # Python bindings (PyO3)
-└── graphite-bench/         # Criterion benchmarks
+├── graphite-bench/         # Criterion benchmarks
+├── graphite-cli/           # CLI binary
+└── graphite-server/        # HTTP/WebSocket ingestion
 ```
 
 ---
@@ -292,13 +294,14 @@ QueryRoot (est. 100000 rows)
 - [x] Streaming iterator API for large range scans
 - [x] CLI tool (`graphite-cli`)
 - [x] GitHub Actions CI
+- [x] S3-backed cold tier for archived SSTables
+- [x] WebSocket tick ingestion API
+- [x] Crates.io and PyPI publish automation
+- [x] Python CI (3.13)
 
 ### Future
 
 - [ ] Replication and multi-node clustering
-- [ ] S3-backed cold tier for archived SSTables
-- [ ] WebSocket tick ingestion API
-- [ ] Crates.io and PyPI publish automation
 
 ---
 
@@ -312,6 +315,49 @@ graphite --db ./data query "SELECT * FROM AAPL WHERE timestamp BETWEEN 0 AND 999
 graphite --db ./data stats
 graphite --db ./data compact
 ```
+
+---
+
+## Cold tier (S3 archive)
+
+Enable the `cold-tier` feature and set `LsmConfig::cold_tier_uri` to archive SSTables at L2+ to object storage:
+
+```rust
+use graphite::{DB, LsmConfig};
+
+let config = LsmConfig {
+    cold_tier_uri: Some("s3://my-bucket/graphite/archive".into()),
+    cold_tier_min_level: 2,
+    ..Default::default()
+};
+let db = DB::open_with_config("./data", config)?;
+db.compact()?;
+let synced = db.sync_cold_tier()?; // uploads new SSTables, keeps local copies
+```
+
+Local development with a directory (or S3 mount):
+
+```rust
+cold_tier_uri: Some("file:///tmp/graphite-cold".into()),
+```
+
+AWS credentials use the standard environment variables (`AWS_ACCESS_KEY_ID`, etc.).
+
+---
+
+## Ingestion server
+
+```bash
+cargo run -p graphite-server -- --db ./data --listen 127.0.0.1:8080
+```
+
+```bash
+curl -X POST http://127.0.0.1:8080/tick \
+  -H 'Content-Type: application/json' \
+  -d '{"symbol":"AAPL","timestamp":1700000000000000000,"open":150,"high":151,"low":149,"close":150.5,"volume":10000}'
+```
+
+WebSocket at `ws://127.0.0.1:8080/ws` — send the same JSON per message; receive `{"ok":true}` or `{"ok":false,"error":"..."}`.
 
 ---
 
