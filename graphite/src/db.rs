@@ -1,7 +1,7 @@
 //! Graphite database API.
 
 use crate::gql::{Executor, QueryResult, parse};
-use graphite_core::{DbStats, LsmConfig, LsmError, LsmTree, SymbolTick, Tick, TickBatch};
+use graphite_core::{DbStats, LsmConfig, LsmError, LsmTree, ScanStream, SymbolTick, Tick, TickBatch};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
@@ -93,6 +93,23 @@ impl DB {
             symbol, t1, t2
         );
         self.query(&gql)
+    }
+
+    /// Stream ticks for a symbol/time range without materializing all rows.
+    pub fn scan_stream(
+        &self,
+        symbol: &str,
+        t1: i64,
+        t2: i64,
+    ) -> Result<ScanStream, DbError> {
+        self.lsm
+            .scan_stream(Some(symbol), t1, t2, &graphite_core::Column::all())
+            .map_err(DbError::Lsm)
+    }
+
+    /// Count ticks in range via streaming scan (no full materialization).
+    pub fn count_range(&self, symbol: &str, t1: i64, t2: i64) -> Result<u64, DbError> {
+        Ok(self.scan_stream(symbol, t1, t2)?.count() as u64)
     }
 
     /// Point lookup by symbol and timestamp.

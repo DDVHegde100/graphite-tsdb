@@ -70,6 +70,20 @@ fn batch_insert_columns() {
 }
 
 #[test]
+fn scan_stream_count() {
+    let dir = tempdir().unwrap();
+    let db = DB::open(dir.path()).unwrap();
+
+    for i in 0..200 {
+        db.insert("MSFT", i as i64 * 1_000_000, 300.0, 301.0, 299.0, 300.0, 50)
+            .unwrap();
+    }
+
+    let count = db.count_range("MSFT", 0, 199_000_000).unwrap();
+    assert_eq!(count, 200);
+}
+
+#[test]
 fn compaction_and_stats() {
     let dir = tempdir().unwrap();
     let db = DB::open(dir.path()).unwrap();
