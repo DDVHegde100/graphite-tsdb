@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.0] - 2026-06-18
+
+### Added
+- S3 / object-store cold tier for archived SSTables (`cold-tier` feature, `LsmConfig::cold_tier_uri`)
+- `DB::sync_cold_tier()` uploads L2+ SSTables to `s3://` or `file://` backends
+- `graphite-server` — HTTP POST `/tick` and WebSocket `/ws` tick ingestion
+- GitHub Actions Python 3.13 CI for `graphite-py`
+- Release workflow for crates.io and PyPI on version tags
+
+### Changed
+- CI tests and clippy run with `cold-tier` feature enabled
+
 ## [0.4.0] - 2026-06-18
 
 ### Added
