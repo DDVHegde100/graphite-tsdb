@@ -1,0 +1,10 @@
+/target/
+**/*.rs.bk
+*.pdb
+.DS_Store
+*.sst
+wal.log
+dist/
+*.egg-info/
+.venv/
+__pycache__/
