@@ -1,6 +1,7 @@
 //! LSM-tree: MemTable + WAL + SSTables + compaction.
 
 use crate::batch::{SymbolTick, TickBatch};
+use crate::scan_iter::{ScanStream, scan_params};
 use crate::block_cache::SharedBlockCache;
 use crate::compaction::CompactionManager;
 use crate::compaction_scheduler::spawn_background_compaction;
@@ -346,6 +347,25 @@ impl LsmTree {
         result.dedup_by(|a, b| a.symbol_id == b.symbol_id && a.timestamp == b.timestamp);
 
         Ok(result)
+    }
+
+    /// Stream ticks in sorted order without materializing the full result set.
+    pub fn scan_stream(
+        &self,
+        symbol: Option<&str>,
+        t1: TimestampNs,
+        t2: TimestampNs,
+        columns: &[Column],
+    ) -> Result<ScanStream, LsmError> {
+        let params = scan_params(&self.symbol_dict, symbol, t1, t2, columns)?;
+        let compaction = self.compaction.read();
+        Ok(ScanStream::new(
+            &self.memtable.read(),
+            &compaction,
+            &self.symbol_dict.read(),
+            params,
+            self.cache.clone(),
+        ))
     }
 
     pub fn flush_memtable(&self) -> Result<(), LsmError> {
