@@ -1,6 +1,7 @@
 //! LRU block cache using intrusive doubly-linked list + HashMap.
 
 use parking_lot::Mutex;
+use std::sync::Arc;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -188,13 +189,21 @@ impl BlockCache {
 
 /// Thread-safe wrapper for concurrent access.
 pub struct SharedBlockCache {
-    inner: Mutex<BlockCache>,
+    inner: Arc<Mutex<BlockCache>>,
+}
+
+impl Clone for SharedBlockCache {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
+    }
 }
 
 impl SharedBlockCache {
     pub fn new(capacity_mb: usize) -> Self {
         Self {
-            inner: Mutex::new(BlockCache::new(capacity_mb)),
+            inner: Arc::new(Mutex::new(BlockCache::new(capacity_mb))),
         }
     }
 
