@@ -1,6 +1,8 @@
+pub mod batch;
 pub mod bloom;
 pub mod block_cache;
 pub mod compaction;
+pub mod compaction_scheduler;
 pub mod compression;
 pub mod lsm;
 pub mod skip_list;
@@ -8,6 +10,7 @@ pub mod sstable;
 pub mod types;
 pub mod wal;
 
+pub use batch::{SymbolTick, TickBatch};
 pub use block_cache::{BlockCache, CacheKey, SharedBlockCache};
 pub use bloom::BloomFilter;
 pub use compaction::{CompactionManager, Level};
