@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0] - 2026-06-18
+
+### Added
+- WAL streaming replication with primary/replica `NodeRole`
+- `DB::open_replica`, `apply_replication_batch`, `read_wal_for_replication`
+- Replication HTTP API on `graphite-server` (`/replication/wal`, `/replication/apply`, `/replication/status`)
+- Primary push and replica pull sync (`--role`, `--primary-url`, `--replica-urls`)
+
 ## [0.5.0] - 2026-06-18
 
 ### Added
