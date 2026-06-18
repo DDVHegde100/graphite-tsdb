@@ -13,17 +13,14 @@ struct Node {
     key: Key,
     tick: Tick,
     forward: [*mut Node; MAX_LEVEL + 1],
-    level: usize,
 }
 
 impl Node {
-    fn new(key: Key, tick: Tick, level: usize) -> *mut Self {
-        let mut forward = [ptr::null_mut(); MAX_LEVEL + 1];
+    fn new(key: Key, tick: Tick, _level: usize) -> *mut Self {
         let node = Box::new(Node {
             key,
             tick,
-            forward,
-            level,
+            forward: [ptr::null_mut(); MAX_LEVEL + 1],
         });
         Box::into_raw(node)
     }
@@ -67,6 +64,7 @@ impl SkipList {
         lvl
     }
 
+    #[allow(clippy::needless_range_loop)]
     pub fn insert(&mut self, tick: Tick) {
         let key = Key::new(tick.symbol_id, tick.timestamp);
         let new_level = self.random_level();

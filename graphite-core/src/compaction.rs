@@ -68,7 +68,7 @@ impl CompactionManager {
         }
 
         for (i, level) in self.levels.iter().enumerate().skip(1) {
-            let target_size = LEVEL_SIZE_RATIO.pow(i as u32) * BLOCK_SIZE_TARGET();
+            let target_size = LEVEL_SIZE_RATIO.pow(i as u32) * block_size_target();
             if level.total_size() > target_size {
                 return true;
             }
@@ -89,7 +89,7 @@ impl CompactionManager {
 
         // Check deeper levels
         for i in 1..self.levels.len() {
-            let target_size = LEVEL_SIZE_RATIO.pow(i as u32) * BLOCK_SIZE_TARGET();
+            let target_size = LEVEL_SIZE_RATIO.pow(i as u32) * block_size_target();
             if self.levels[i].total_size() > target_size {
                 self.compact_level(i, cache)?;
             }
@@ -178,6 +178,6 @@ impl CompactionManager {
     }
 }
 
-fn BLOCK_SIZE_TARGET() -> u64 {
+fn block_size_target() -> u64 {
     4 * 1024 * 1024 // 4MB target per level
 }

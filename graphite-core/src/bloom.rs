@@ -27,14 +27,14 @@ impl BloomFilter {
         let num_bits = optimal_num_bits(num_items, BLOOM_FPR);
         let num_hashes = optimal_num_hashes(num_bits, num_items);
         Self {
-            bits: vec![0u64; (num_bits + 63) / 64],
+            bits: vec![0u64; num_bits.div_ceil(64)],
             num_bits,
             num_hashes,
         }
     }
 
     pub fn from_bytes(data: &[u8], num_bits: usize, num_hashes: u32) -> Self {
-        let num_words = (num_bits + 63) / 64;
+        let num_words = num_bits.div_ceil(64);
         let mut bits = vec![0u64; num_words];
         for (i, word) in bits.iter_mut().enumerate() {
             let start = i * 8;

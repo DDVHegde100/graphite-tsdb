@@ -96,6 +96,10 @@ impl SymbolDictionary {
     pub fn len(&self) -> usize {
         self.id_to_symbol.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.id_to_symbol.is_empty()
+    }
 }
 
 #[cfg(test)]

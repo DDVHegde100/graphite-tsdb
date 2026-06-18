@@ -37,6 +37,7 @@ impl DB {
     }
 
     /// Insert a single tick.
+    #[allow(clippy::too_many_arguments)]
     pub fn insert(
         &self,
         symbol: &str,
