@@ -301,7 +301,29 @@ QueryRoot (est. 100000 rows)
 
 ### Future
 
-- [ ] Replication and multi-node clustering
+- [x] Replication and multi-node clustering
+
+---
+
+## Replication cluster
+
+Primary accepts writes; replicas apply WAL entries over HTTP.
+
+```bash
+# Primary with push replication
+cargo run -p graphite-server -- --role primary --replica-urls http://127.0.0.1:8081
+
+# Replica (pull sync from primary)
+cargo run -p graphite-server -- --role replica --primary-url http://127.0.0.1:8080 --listen 127.0.0.1:8081 --db ./replica-data
+```
+
+Rust API:
+
+```rust
+let replica = DB::open_replica("./replica-data", LsmConfig::default())?;
+let entries = primary.read_wal_for_replication(None, 500)?;
+replica.apply_replication_batch(&entries)?;
+```
 
 ---
 
