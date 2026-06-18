@@ -1,11 +1,11 @@
 //! Python bindings for Graphite TSDB via PyO3.
 
-use graphite::{DB, DbError, QueryResult, ResultRow};
+use graphite::{DB, DbError, QueryResult};
+use graphite_core::TickBatch;
 use numpy::{PyReadonlyArray1, PyUntypedArrayMethods};
 use pyo3::exceptions::{PyIOError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
-use std::path::PathBuf;
+use pyo3::types::PyDict;
 
 fn db_err(e: DbError) -> PyErr {
     match e {
@@ -45,7 +45,7 @@ impl PyDB {
             .map_err(db_err)
     }
 
-    /// Bulk insert from numpy structured array columns.
+    /// Bulk insert from numpy arrays (single WAL fsync).
     fn insert_numpy(
         &self,
         symbol: &str,
@@ -56,48 +56,44 @@ impl PyDB {
         closes: PyReadonlyArray1<'_, f64>,
         volumes: PyReadonlyArray1<'_, u64>,
     ) -> PyResult<()> {
-        let ts = timestamps.as_slice()?;
-        let o = opens.as_slice()?;
-        let h = highs.as_slice()?;
-        let l = lows.as_slice()?;
-        let c = closes.as_slice()?;
-        let v = volumes.as_slice()?;
-
-        let n = ts.len();
-        if o.len() != n || h.len() != n || l.len() != n || c.len() != n || v.len() != n {
+        let batch = TickBatch {
+            timestamps: timestamps.as_slice()?.to_vec(),
+            opens: opens.as_slice()?.to_vec(),
+            highs: highs.as_slice()?.to_vec(),
+            lows: lows.as_slice()?.to_vec(),
+            closes: closes.as_slice()?.to_vec(),
+            volumes: volumes.as_slice()?.to_vec(),
+        };
+        let n = batch.len();
+        if batch.opens.len() != n
+            || batch.highs.len() != n
+            || batch.lows.len() != n
+            || batch.closes.len() != n
+            || batch.volumes.len() != n
+        {
             return Err(PyValueError::new_err("all arrays must have same length"));
         }
-
-        for i in 0..n {
-            self.inner
-                .insert(symbol, ts[i], o[i], h[i], l[i], c[i], v[i])
-                .map_err(db_err)?;
-        }
-        Ok(())
+        self.inner.insert_batch_columns(symbol, &batch).map_err(db_err)
     }
 
-    /// Execute a GQL query and return results as a dict (polars-compatible).
+    /// Execute GQL and return a Polars DataFrame (falls back to dict if polars missing).
     fn query(&self, gql: &str, py: Python<'_>) -> PyResult<PyObject> {
         let result = self.inner.query(gql).map_err(db_err)?;
-
-        if let Some(plan) = result.explain_plan {
-            let dict = PyDict::new_bound(py);
-            dict.set_item("explain_plan", plan)?;
-            dict.set_item("rows", PyList::empty_bound(py))?;
-            return Ok(dict.into());
-        }
-
-        result_to_dict(py, &result)
+        result_to_polars_or_dict(py, &result)
     }
 
-    /// Query a time range and return results as a dict.
+    /// Range query returning a Polars DataFrame.
     fn query_range(&self, symbol: &str, t1: i64, t2: i64, py: Python<'_>) -> PyResult<PyObject> {
         let result = self.inner.query_range(symbol, t1, t2).map_err(db_err)?;
-        result_to_dict(py, &result)
+        result_to_polars_or_dict(py, &result)
     }
 
     fn compact(&self) -> PyResult<()> {
         self.inner.compact().map_err(db_err)
+    }
+
+    fn needs_compaction(&self) -> bool {
+        self.inner.needs_compaction()
     }
 
     fn stats(&self, py: Python<'_>) -> PyResult<PyObject> {
@@ -111,6 +107,39 @@ impl PyDB {
         dict.set_item("total_sstables", stats.total_sstables)?;
         Ok(dict.into())
     }
+}
+
+fn result_to_polars_or_dict(py: Python<'_>, result: &QueryResult) -> PyResult<PyObject> {
+    if let Some(plan) = &result.explain_plan {
+        let dict = PyDict::new_bound(py);
+        dict.set_item("explain_plan", plan)?;
+        dict.set_item("row_count", 0)?;
+        return Ok(dict.into());
+    }
+
+  if let Ok(polars) = py.import_bound("polars") {
+        let timestamps: Vec<i64> = result.rows.iter().map(|r| r.timestamp).collect();
+        let symbols: Vec<String> = result.rows.iter().map(|r| r.symbol.clone()).collect();
+        let opens: Vec<f64> = result.rows.iter().map(|r| r.open).collect();
+        let highs: Vec<f64> = result.rows.iter().map(|r| r.high).collect();
+        let lows: Vec<f64> = result.rows.iter().map(|r| r.low).collect();
+        let closes: Vec<f64> = result.rows.iter().map(|r| r.close).collect();
+        let volumes: Vec<u64> = result.rows.iter().map(|r| r.volume).collect();
+
+        let kwargs = PyDict::new_bound(py);
+        kwargs.set_item("timestamp", timestamps)?;
+        kwargs.set_item("symbol", symbols)?;
+        kwargs.set_item("open", opens)?;
+        kwargs.set_item("high", highs)?;
+        kwargs.set_item("low", lows)?;
+        kwargs.set_item("close", closes)?;
+        kwargs.set_item("volume", volumes)?;
+
+        let df = polars.call_method("DataFrame", (), Some(&kwargs))?;
+        return Ok(df.into());
+    }
+
+    result_to_dict(py, result)
 }
 
 fn result_to_dict(py: Python<'_>, result: &QueryResult) -> PyResult<PyObject> {
