@@ -290,6 +290,28 @@ QueryRoot (est. 100000 rows)
 - [x] ZSTD option for cold SSTable tiers (L1+ volumes)
 - [x] Cross-DB benchmark harness (InfluxDB, DuckDB, TimescaleDB)
 - [x] Streaming iterator API for large range scans
+- [x] CLI tool (`graphite-cli`)
+- [x] GitHub Actions CI
+
+### Future
+
+- [ ] Replication and multi-node clustering
+- [ ] S3-backed cold tier for archived SSTables
+- [ ] WebSocket tick ingestion API
+- [ ] Crates.io and PyPI publish automation
+
+---
+
+## CLI
+
+```bash
+cargo install --path graphite-cli
+
+graphite --db ./data insert AAPL --timestamp 1700000000000000000 --open 150 --high 151 --low 149 --close 150.5 --volume 10000
+graphite --db ./data query "SELECT * FROM AAPL WHERE timestamp BETWEEN 0 AND 999000000000"
+graphite --db ./data stats
+graphite --db ./data compact
+```
 
 ---
 

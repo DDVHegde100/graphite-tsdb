@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.0] - 2026-06-18
+
+### Added
+- `graphite-cli` — command-line insert, query, stats, compact, count
+- GitHub Actions CI (test + clippy)
+- Python `scan_iter` for streaming tick iteration
+- Rust example at `graphite/examples/basic.rs`
+
+### Changed
+- Cleaned up compiler warnings in core storage engine
+
 ## [0.3.0] - 2026-06-18
 
 ### Added
