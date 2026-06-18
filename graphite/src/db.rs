@@ -16,6 +16,8 @@ pub enum DbError {
     Exec(#[from] crate::gql::executor::ExecError),
     #[error("Database not open")]
     NotOpen,
+    #[error("Replication error: {0}")]
+    Replication(#[from] graphite_core::ReplicationError),
 }
 
 /// Graphite time-series database.
@@ -34,6 +36,15 @@ impl DB {
         let path = path.as_ref().to_path_buf();
         let lsm = LsmTree::open(&path, config)?;
         Ok(Self { path, lsm })
+    }
+
+    /// Open a read-only replica node.
+    pub fn open_replica(path: impl AsRef<Path>, config: LsmConfig) -> Result<Self, DbError> {
+        let config = LsmConfig {
+            node_role: graphite_core::NodeRole::Replica,
+            ..config
+        };
+        Self::open_with_config(path, config)
     }
 
     /// Insert a single tick.
@@ -147,5 +158,36 @@ impl DB {
     #[cfg(feature = "cold-tier")]
     pub fn cold_tier_synced_count(&self) -> usize {
         self.lsm.cold_tier_synced_count()
+    }
+
+    pub fn node_role(&self) -> graphite_core::NodeRole {
+        self.lsm.node_role()
+    }
+
+    pub fn replication_status(&self) -> graphite_core::ReplicationStatus {
+        self.lsm.replication_status()
+    }
+
+    pub fn read_wal_for_replication(
+        &self,
+        after_inclusive: Option<u64>,
+        limit: usize,
+    ) -> Result<Vec<graphite_core::ReplicationEntry>, DbError> {
+        self.lsm
+            .read_wal_for_replication(after_inclusive, limit)
+            .map_err(DbError::Lsm)
+    }
+
+    pub fn replication_last_applied(&self) -> Option<u64> {
+        self.lsm.replication_last_applied()
+    }
+
+    pub fn apply_replication_batch(
+        &self,
+        entries: &[graphite_core::ReplicationEntry],
+    ) -> Result<u64, DbError> {
+        self.lsm
+            .apply_replication_batch(entries)
+            .map_err(DbError::Lsm)
     }
 }
