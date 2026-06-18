@@ -15,9 +15,18 @@ graphite.workspace = true
 graphite-core.workspace = true
 tempfile = "3"
 rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+duckdb = { version = "1", optional = true }
+
+[features]
+compare-duckdb = ["dep:duckdb"]
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bin]]
+name = "compare_write"
+path = "src/bin/compare_write.rs"
 
 [[bench]]
 name = "write_throughput"

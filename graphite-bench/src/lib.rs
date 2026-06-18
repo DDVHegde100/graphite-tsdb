@@ -1,5 +1,7 @@
 //! Benchmark harness utilities and comparison scaffolding.
 
+pub mod compare;
+
 use std::time::{Duration, Instant};
 
 /// Result of a timed benchmark run.
