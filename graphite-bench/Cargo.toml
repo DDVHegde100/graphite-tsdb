@@ -1,0 +1,28 @@
+[package]
+name = "graphite-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+graphite.workspace = true
+graphite-core.workspace = true
+tempfile = "3"
+rand = "0.8"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "write_throughput"
+harness = false
+
+[[bench]]
+name = "point_query"
+harness = false
+
+[[bench]]
+name = "range_scan"
+harness = false
