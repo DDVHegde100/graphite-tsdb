@@ -5,6 +5,7 @@ pub mod bloom;
 pub mod block_cache;
 pub mod compaction;
 pub mod compaction_scheduler;
+pub mod replication;
 pub mod scan_iter;
 pub mod compression;
 pub mod lsm;
@@ -19,6 +20,10 @@ pub use batch::{SymbolTick, TickBatch};
 pub use block_cache::{BlockCache, CacheKey, SharedBlockCache};
 pub use bloom::BloomFilter;
 pub use compaction::{CompactionManager, Level};
+pub use replication::{
+    NodeRole, ReplicationBatch, ReplicationEntry, ReplicationError, ReplicationStatus,
+    ReplicationTracker,
+};
 pub use compression::dictionary::SymbolDictionary;
 pub use lsm::{LsmConfig, LsmError, LsmTree};
 pub use scan_iter::{ScanParams, ScanStream};
