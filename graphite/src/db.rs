@@ -137,4 +137,15 @@ impl DB {
     pub fn path(&self) -> &Path {
         &self.path
     }
+
+    /// Upload archived SSTables to cold tier object storage (requires `cold-tier` feature and config).
+    #[cfg(feature = "cold-tier")]
+    pub fn sync_cold_tier(&self) -> Result<usize, DbError> {
+        self.lsm.sync_cold_tier().map_err(DbError::Lsm)
+    }
+
+    #[cfg(feature = "cold-tier")]
+    pub fn cold_tier_synced_count(&self) -> usize {
+        self.lsm.cold_tier_synced_count()
+    }
 }

@@ -1,4 +1,6 @@
 pub mod batch;
+#[cfg(feature = "cold-tier")]
+pub mod cold_tier;
 pub mod bloom;
 pub mod block_cache;
 pub mod compaction;
@@ -11,6 +13,8 @@ pub mod sstable;
 pub mod types;
 pub mod wal;
 
+#[cfg(feature = "cold-tier")]
+pub use cold_tier::{ColdTier, ColdTierError};
 pub use batch::{SymbolTick, TickBatch};
 pub use block_cache::{BlockCache, CacheKey, SharedBlockCache};
 pub use bloom::BloomFilter;

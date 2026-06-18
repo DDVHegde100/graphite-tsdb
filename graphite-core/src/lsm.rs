@@ -10,6 +10,8 @@ use crate::skip_list::SkipList;
 use crate::sstable::SsTable;
 use crate::types::{Column, DbStats, Key, Tick, TimestampNs, WalRecord};
 use crate::wal::Wal;
+#[cfg(feature = "cold-tier")]
+use crate::cold_tier::ColdTier;
 use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -26,6 +28,9 @@ pub enum LsmError {
     SsTable(#[from] crate::sstable::SsTableError),
     #[error("Compaction error: {0}")]
     Compaction(#[from] crate::compaction::CompactionError),
+    #[cfg(feature = "cold-tier")]
+    #[error("Cold tier error: {0}")]
+    ColdTier(#[from] crate::cold_tier::ColdTierError),
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
     #[error("Symbol not found: {0}")]
@@ -41,6 +46,10 @@ pub struct LsmConfig {
     pub auto_compact: bool,
     /// Interval between background compaction checks (milliseconds).
     pub compact_interval_ms: u64,
+    /// Object store URI for cold tier (`s3://bucket/prefix` or `file:///path`). Requires `cold-tier` feature.
+    pub cold_tier_uri: Option<String>,
+    /// Minimum SSTable level to archive to cold tier (default 2).
+    pub cold_tier_min_level: u32,
 }
 
 impl Default for LsmConfig {
@@ -50,6 +59,8 @@ impl Default for LsmConfig {
             memtable_flush_threshold: MEMTABLE_FLUSH_THRESHOLD,
             auto_compact: true,
             compact_interval_ms: 5000,
+            cold_tier_uri: None,
+            cold_tier_min_level: 2,
         }
     }
 }
@@ -66,6 +77,8 @@ pub struct LsmTree {
     bloom_checks: AtomicU64,
     bloom_hits: AtomicU64,
     total_rows: AtomicU64,
+    #[cfg(feature = "cold-tier")]
+    cold_tier: Option<Arc<ColdTier>>,
 }
 
 impl LsmTree {
@@ -80,6 +93,26 @@ impl LsmTree {
         let compaction = CompactionManager::new(&data_dir, symbol_dict.clone());
         let cache = SharedBlockCache::new(config.cache_size_mb);
 
+        let cold_tier: Option<Arc<ColdTier>> = {
+            #[cfg(feature = "cold-tier")]
+            {
+                if let Some(uri) = &config.cold_tier_uri {
+                    Some(Arc::new(ColdTier::open(
+                        data_dir.clone(),
+                        uri,
+                        config.cold_tier_min_level,
+                    )?))
+                } else {
+                    None
+                }
+            }
+            #[cfg(not(feature = "cold-tier"))]
+            {
+                None
+            }
+        };
+        let _ = &config.cold_tier_uri;
+
         let lsm = Arc::new(Self {
             data_dir,
             memtable: RwLock::new(SkipList::new()),
@@ -91,6 +124,8 @@ impl LsmTree {
             bloom_checks: AtomicU64::new(0),
             bloom_hits: AtomicU64::new(0),
             total_rows: AtomicU64::new(0),
+            #[cfg(feature = "cold-tier")]
+            cold_tier,
         });
 
         // Replay WAL
@@ -104,6 +139,38 @@ impl LsmTree {
         }
 
         Ok(lsm)
+    }
+
+    fn open_sstable(&self, path: &Path) -> Result<SsTable, LsmError> {
+        #[cfg(feature = "cold-tier")]
+        if let Some(cold) = &self.cold_tier {
+            if !path.exists() {
+                cold.ensure_local(path)?;
+            }
+        }
+        SsTable::open(path).map_err(LsmError::SsTable)
+    }
+
+    /// Upload SSTables at or above the cold tier min level to object storage.
+    #[cfg(feature = "cold-tier")]
+    pub fn sync_cold_tier(&self) -> Result<usize, LsmError> {
+        let cold = self.cold_tier.as_ref().ok_or_else(|| {
+            LsmError::ColdTier(crate::cold_tier::ColdTierError::Config(
+                "cold_tier_uri not configured".into(),
+            ))
+        })?;
+        let compaction = self.compaction.read();
+        let tables: Vec<&SsTable> = compaction
+            .levels
+            .iter()
+            .flat_map(|l| l.tables.iter())
+            .collect();
+        cold.sync_tables(&tables).map_err(LsmError::ColdTier)
+    }
+
+    #[cfg(feature = "cold-tier")]
+    pub fn cold_tier_synced_count(&self) -> usize {
+        self.cold_tier.as_ref().map(|c| c.synced_count()).unwrap_or(0)
     }
 
     fn recover_from_wal(&self) -> Result<(), LsmError> {
@@ -133,7 +200,13 @@ impl LsmTree {
         for entry in entries {
             let path = entry?.path();
             if path.extension().map(|e| e == "sst").unwrap_or(false) {
-                let table = SsTable::open(&path)?;
+                #[cfg(feature = "cold-tier")]
+                if !path.exists() {
+                    if let Some(cold) = &self.cold_tier {
+                        cold.ensure_local(&path).ok();
+                    }
+                }
+                let table = self.open_sstable(&path)?;
                 let level = table.meta.level as usize;
                 while compaction.levels.len() <= level {
                     let level_num = compaction.levels.len() as u32;
@@ -267,7 +340,7 @@ impl LsmTree {
                 if table.overlaps_time_range(timestamp, timestamp)
                     && table.overlaps_symbol(symbol_id)
                 {
-                    let mut t = SsTable::open(&table.path)?;
+                    let mut t = self.open_sstable(&table.path)?;
                     let ticks = t.scan(
                         Some(symbol_id),
                         timestamp,
@@ -338,7 +411,7 @@ impl LsmTree {
                     }
                 }
 
-                let mut t = SsTable::open(&table.path)?;
+                let mut t = self.open_sstable(&table.path)?;
                 let ticks = t.scan(symbol_id, t1, t2, columns, Some(&self.cache));
                 result.extend(ticks);
             }
@@ -366,6 +439,8 @@ impl LsmTree {
             &self.symbol_dict.read(),
             params,
             self.cache.clone(),
+            #[cfg(feature = "cold-tier")]
+            self.cold_tier.clone(),
         ))
     }
 
