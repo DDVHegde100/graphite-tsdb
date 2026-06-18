@@ -107,6 +107,45 @@ impl PyDB {
         dict.set_item("total_sstables", stats.total_sstables)?;
         Ok(dict.into())
     }
+
+    /// Stream ticks for a symbol/time range without materializing all rows.
+    fn scan_iter(&self, symbol: &str, t1: i64, t2: i64) -> PyResult<PyTickStream> {
+        let stream = self.inner.scan_stream(symbol, t1, t2).map_err(db_err)?;
+        Ok(PyTickStream {
+            stream,
+            symbol: symbol.to_string(),
+        })
+    }
+}
+
+/// Python iterator over streaming ticks.
+#[pyclass(name = "TickStream")]
+struct PyTickStream {
+    stream: graphite_core::ScanStream,
+    symbol: String,
+}
+
+#[pymethods]
+impl PyTickStream {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<Option<PyObject>> {
+        if let Some(tick) = slf.stream.next() {
+            let dict = PyDict::new_bound(py);
+            dict.set_item("timestamp", tick.timestamp)?;
+            dict.set_item("symbol", &slf.symbol)?;
+            dict.set_item("open", tick.open)?;
+            dict.set_item("high", tick.high)?;
+            dict.set_item("low", tick.low)?;
+            dict.set_item("close", tick.close)?;
+            dict.set_item("volume", tick.volume)?;
+            Ok(Some(dict.into()))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 fn result_to_polars_or_dict(py: Python<'_>, result: &QueryResult) -> PyResult<PyObject> {
@@ -167,5 +206,6 @@ fn result_to_dict(py: Python<'_>, result: &QueryResult) -> PyResult<PyObject> {
 #[pymodule]
 fn graphite_tsdb(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDB>()?;
+    m.add_class::<PyTickStream>()?;
     Ok(())
 }
