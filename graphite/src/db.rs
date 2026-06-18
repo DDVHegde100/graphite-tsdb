@@ -1,8 +1,9 @@
 //! Graphite database API.
 
 use crate::gql::{Executor, QueryResult, parse};
-use graphite_core::{DbStats, LsmConfig, LsmError, LsmTree, Tick};
+use graphite_core::{DbStats, LsmConfig, LsmError, LsmTree, SymbolTick, Tick, TickBatch};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -20,8 +21,7 @@ pub enum DbError {
 /// Graphite time-series database.
 pub struct DB {
     path: PathBuf,
-    lsm: LsmTree,
-    config: LsmConfig,
+    lsm: Arc<LsmTree>,
 }
 
 impl DB {
@@ -30,14 +30,10 @@ impl DB {
         Self::open_with_config(path, LsmConfig::default())
     }
 
-  pub fn open_with_config(path: impl AsRef<Path>, config: LsmConfig) -> Result<Self, DbError> {
+    pub fn open_with_config(path: impl AsRef<Path>, config: LsmConfig) -> Result<Self, DbError> {
         let path = path.as_ref().to_path_buf();
-        let lsm = LsmTree::open(&path, config.clone())?;
-        Ok(Self {
-            path,
-            lsm,
-            config,
-        })
+        let lsm = LsmTree::open(&path, config)?;
+        Ok(Self { path, lsm })
     }
 
     /// Insert a single tick.
@@ -51,16 +47,31 @@ impl DB {
         close: f64,
         volume: u64,
     ) -> Result<(), DbError> {
-        self.lsm.insert_tick(symbol, timestamp_ns, open, high, low, close, volume)?;
+        self.lsm
+            .insert_tick(symbol, timestamp_ns, open, high, low, close, volume)?;
         Ok(())
     }
 
-    /// Bulk insert ticks.
+    /// Bulk insert ticks for one symbol.
     pub fn insert_batch(&self, symbol: &str, ticks: &[Tick]) -> Result<(), DbError> {
         for tick in ticks {
             self.lsm.insert(symbol, *tick)?;
         }
         Ok(())
+    }
+
+    /// Columnar bulk insert for one symbol (single WAL fsync).
+    pub fn insert_batch_columns(
+        &self,
+        symbol: &str,
+        batch: &TickBatch,
+    ) -> Result<(), DbError> {
+        self.lsm.insert_batch(symbol, batch).map_err(DbError::Lsm)
+    }
+
+    /// Bulk insert ticks across multiple symbols (single WAL fsync).
+    pub fn insert_multi(&self, ticks: &[SymbolTick]) -> Result<(), DbError> {
+        self.lsm.insert_multi(ticks).map_err(DbError::Lsm)
     }
 
     /// Execute a GQL query string.
@@ -89,10 +100,15 @@ impl DB {
         self.lsm.get(symbol, timestamp_ns).map_err(DbError::Lsm)
     }
 
-    /// Trigger compaction.
+    /// Trigger compaction manually.
     pub fn compact(&self) -> Result<(), DbError> {
         self.lsm.compact()?;
         Ok(())
+    }
+
+    /// Whether background or manual compaction is recommended.
+    pub fn needs_compaction(&self) -> bool {
+        self.lsm.needs_compaction()
     }
 
     /// Get database statistics.
