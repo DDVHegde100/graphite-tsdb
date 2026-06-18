@@ -219,6 +219,10 @@ impl Drop for SkipList {
     }
 }
 
+// Skip-list nodes are only accessed through RwLock guards.
+unsafe impl Send for SkipList {}
+unsafe impl Sync for SkipList {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
