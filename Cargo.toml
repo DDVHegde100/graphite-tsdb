@@ -6,6 +6,7 @@ members = [
     "graphite-py",
     "graphite-bench",
     "graphite-cli",
+    "graphite-server",
 ]
 default-members = ["graphite"]
 
@@ -14,6 +15,9 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 authors = ["Graphite Contributors"]
+repository = "https://github.com/DDVHegde100/graphite-tsdb"
+homepage = "https://github.com/DDVHegde100/graphite-tsdb"
+documentation = "https://docs.rs/graphite"
 
 [workspace.dependencies]
 graphite-core = { path = "graphite-core" }
