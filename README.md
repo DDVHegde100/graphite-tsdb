@@ -164,6 +164,10 @@ if let Some(tick) = db.get("AAPL", 1_700_000_000_000_000_000)? {
     println!("close = {}", tick.close);
 }
 
+// Streaming scan — no full materialization
+let count = db.count_range("AAPL", 0, 999_000_000_000)?;
+println!("{} ticks in range", count);
+
 db.compact()?;
 let stats = db.stats();
 println!("write amplification: {:.2}", stats.write_amplification_factor);
@@ -230,7 +234,13 @@ cargo bench -p graphite-bench
 # HTML reports: target/criterion/report/index.html
 ```
 
-For comparisons against InfluxDB, DuckDB, or TimescaleDB, run the same tick workload against those systems separately — Graphite benchmarks use identical OHLCV schemas for fair comparison.
+# Cross-database write comparison (Graphite vs optional DuckDB / Influx / Timescale)
+cargo run -p graphite-bench --release --bin compare_write
+cargo run -p graphite-bench --release --features compare-duckdb --bin compare_write
+
+# External DB env vars (optional):
+# GRAPHITE_BENCH_INFLUX_URL, GRAPHITE_BENCH_INFLUX_TOKEN, GRAPHITE_BENCH_INFLUX_ORG, GRAPHITE_BENCH_INFLUX_BUCKET
+# GRAPHITE_BENCH_TIMESCALE_DSN=postgresql://user:pass@localhost:5432/db
 
 ---
 
@@ -278,8 +288,8 @@ QueryRoot (est. 100000 rows)
 - [x] Multi-symbol batch insert API
 - [x] Native Polars DataFrame return in Python
 - [x] ZSTD option for cold SSTable tiers (L1+ volumes)
-- [ ] Cross-DB benchmark harness (InfluxDB, DuckDB, TimescaleDB)
-- [ ] Streaming iterator API for large range scans
+- [x] Cross-DB benchmark harness (InfluxDB, DuckDB, TimescaleDB)
+- [x] Streaming iterator API for large range scans
 
 ---
 
