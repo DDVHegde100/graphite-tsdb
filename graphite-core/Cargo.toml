@@ -16,6 +16,7 @@ lz4_flex.workspace = true
 parking_lot.workspace = true
 tokio.workspace = true
 rand.workspace = true
+zstd = "0.13"
 
 [dev-dependencies]
 tempfile = "3"

@@ -99,7 +99,7 @@ impl SsTable {
         let high_col = gorilla::encode_double_delta(&highs);
         let low_col = gorilla::encode_double_delta(&lows);
         let close_col = gorilla::encode_double_delta(&closes);
-        let vol_col = rle_lz4::encode(&volumes);
+        let vol_col = rle_lz4::encode_for_level(&volumes, level);
         let sym_col = symbol_dict.encode_ids(&symbol_ids);
 
         // Build data blocks with prefix-compressed keys
