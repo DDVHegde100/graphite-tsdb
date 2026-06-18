@@ -188,4 +188,85 @@ impl Wal {
     pub fn sequence(&self) -> u64 {
         self.sequence
     }
+
+    /// Read WAL records for replication. With `after_sequence` None, returns from the start.
+    pub fn read_for_replication(
+        &self,
+        after_sequence: Option<u64>,
+        limit: usize,
+    ) -> Result<Vec<(u64, WalRecord)>, WalError> {
+        let file = File::open(&self.path)?;
+        let mut reader = std::io::BufReader::new(file);
+        let mut results = Vec::new();
+        let mut offset = 0u64;
+
+        loop {
+            if results.len() >= limit {
+                break;
+            }
+
+            let mut magic_buf = [0u8; 4];
+            if reader.read_exact(&mut magic_buf).is_err() {
+                break;
+            }
+            let magic = u32::from_be_bytes(magic_buf);
+            if magic != MAGIC {
+                return Err(WalError::Corrupt {
+                    offset,
+                    reason: format!("bad magic: {magic:#x}"),
+                });
+            }
+
+            let mut version_buf = [0u8; 2];
+            reader.read_exact(&mut version_buf)?;
+            let version = u16::from_be_bytes(version_buf);
+            if version != VERSION {
+                return Err(WalError::Corrupt {
+                    offset,
+                    reason: format!("unsupported version: {version}"),
+                });
+            }
+
+            let mut checksum_buf = [0u8; 4];
+            reader.read_exact(&mut checksum_buf)?;
+            let expected_checksum = u32::from_be_bytes(checksum_buf);
+
+            let mut len_buf = [0u8; 4];
+            reader.read_exact(&mut len_buf)?;
+            let payload_len = u32::from_be_bytes(len_buf) as usize;
+
+            let mut seq_buf = [0u8; 8];
+            reader.read_exact(&mut seq_buf)?;
+            let seq = u64::from_be_bytes(seq_buf);
+
+            let mut payload = vec![0u8; payload_len];
+            reader.read_exact(&mut payload)?;
+
+            let mut hasher = Hasher::new();
+            hasher.update(&payload);
+            if hasher.finalize() != expected_checksum {
+                return Err(WalError::Corrupt {
+                    offset,
+                    reason: "checksum mismatch".into(),
+                });
+            }
+
+            offset += 4 + 2 + 4 + 4 + 8 + payload_len as u64;
+
+            let include = match after_sequence {
+                None => true,
+                Some(last) => seq > last,
+            };
+            if include {
+                let record: WalRecord = serde_json::from_slice(&payload)
+                    .map_err(|e| WalError::Corrupt {
+                        offset,
+                        reason: e.to_string(),
+                    })?;
+                results.push((seq, record));
+            }
+        }
+
+        Ok(results)
+    }
 }

@@ -9,6 +9,7 @@ use crate::compression::dictionary::SymbolDictionary;
 use crate::skip_list::SkipList;
 use crate::sstable::SsTable;
 use crate::types::{Column, DbStats, Key, Tick, TimestampNs, WalRecord};
+use crate::replication::{NodeRole, ReplicationEntry, ReplicationStatus, ReplicationTracker};
 use crate::wal::Wal;
 #[cfg(feature = "cold-tier")]
 use crate::cold_tier::ColdTier;
@@ -35,6 +36,8 @@ pub enum LsmError {
     Io(#[from] std::io::Error),
     #[error("Symbol not found: {0}")]
     SymbolNotFound(String),
+    #[error("Replication error: {0}")]
+    Replication(#[from] crate::replication::ReplicationError),
 }
 
 /// Configuration for the LSM-tree.
@@ -50,6 +53,8 @@ pub struct LsmConfig {
     pub cold_tier_uri: Option<String>,
     /// Minimum SSTable level to archive to cold tier (default 2).
     pub cold_tier_min_level: u32,
+    /// Node role for replication cluster.
+    pub node_role: NodeRole,
 }
 
 impl Default for LsmConfig {
@@ -61,6 +66,7 @@ impl Default for LsmConfig {
             compact_interval_ms: 5000,
             cold_tier_uri: None,
             cold_tier_min_level: 2,
+            node_role: NodeRole::Primary,
         }
     }
 }
@@ -79,6 +85,8 @@ pub struct LsmTree {
     total_rows: AtomicU64,
     #[cfg(feature = "cold-tier")]
     cold_tier: Option<Arc<ColdTier>>,
+    role: NodeRole,
+    replication: RwLock<ReplicationTracker>,
 }
 
 impl LsmTree {
@@ -113,6 +121,9 @@ impl LsmTree {
         };
         let _ = &config.cold_tier_uri;
 
+        let replication = ReplicationTracker::open(&data_dir)?;
+        let node_role = config.node_role;
+
         let lsm = Arc::new(Self {
             data_dir,
             memtable: RwLock::new(SkipList::new()),
@@ -126,6 +137,8 @@ impl LsmTree {
             total_rows: AtomicU64::new(0),
             #[cfg(feature = "cold-tier")]
             cold_tier,
+            role: node_role,
+            replication: RwLock::new(replication),
         });
 
         // Replay WAL
@@ -220,6 +233,11 @@ impl LsmTree {
     }
 
     pub fn insert(&self, symbol: &str, tick: Tick) -> Result<(), LsmError> {
+        if self.role == NodeRole::Replica {
+            return Err(LsmError::Replication(
+                crate::replication::ReplicationError::NotPrimary,
+            ));
+        }
         let mut dict = self.symbol_dict.write();
         let symbol_id = dict.get_or_insert(symbol);
         let tick = Tick {
@@ -501,5 +519,110 @@ impl LsmTree {
 
     pub fn symbol_dict(&self) -> SymbolDictionary {
         self.symbol_dict.read().clone()
+    }
+
+    pub fn node_role(&self) -> NodeRole {
+        self.role
+    }
+
+    /// Read WAL entries for replication streaming (primary only).
+    pub fn read_wal_for_replication(
+        &self,
+        after_inclusive: Option<u64>,
+        limit: usize,
+    ) -> Result<Vec<ReplicationEntry>, LsmError> {
+        let records = self.wal.read().read_for_replication(after_inclusive, limit)?;
+        let dict = self.symbol_dict.read();
+        Ok(
+            records
+                .into_iter()
+                .map(|(sequence, record)| {
+                    let symbol = match &record {
+                        WalRecord::Insert(tick) => dict
+                            .get_symbol(tick.symbol_id)
+                            .map(|s| s.to_string()),
+                        _ => None,
+                    };
+                    ReplicationEntry {
+                        sequence,
+                        record,
+                        symbol,
+                    }
+                })
+                .collect(),
+        )
+    }
+
+    /// Apply a batch of replicated WAL entries (replica only).
+    pub fn apply_replication_batch(&self, entries: &[ReplicationEntry]) -> Result<u64, LsmError> {
+        if entries.is_empty() {
+            return Ok(0);
+        }
+        if self.role != NodeRole::Replica {
+            return Err(LsmError::Replication(
+                crate::replication::ReplicationError::NotReplica,
+            ));
+        }
+
+        let max_seq = entries.iter().map(|e| e.sequence).max().unwrap_or(0);
+
+        let mut dict = self.symbol_dict.write();
+        let mut resolved: Vec<Tick> = Vec::new();
+        for entry in entries {
+            if let WalRecord::Insert(tick) = &entry.record {
+                let symbol_id = if let Some(sym) = &entry.symbol {
+                    dict.get_or_insert(sym)
+                } else {
+                    tick.symbol_id
+                };
+                resolved.push(Tick {
+                    symbol_id,
+                    timestamp: tick.timestamp,
+                    open: tick.open,
+                    high: tick.high,
+                    low: tick.low,
+                    close: tick.close,
+                    volume: tick.volume,
+                });
+            }
+        }
+        drop(dict);
+
+        let wal_for_storage: Vec<WalRecord> = resolved
+            .iter()
+            .map(|t| WalRecord::Insert(*t))
+            .collect();
+        self.wal.write().append_batch(&wal_for_storage)?;
+
+        let mut memtable = self.memtable.write();
+        for tick in resolved {
+            memtable.insert(tick);
+            self.total_rows.fetch_add(1, Ordering::Relaxed);
+        }
+        let memtable_len = memtable.len();
+        drop(memtable);
+
+        if memtable_len >= self.config.memtable_flush_threshold {
+            self.flush_memtable()?;
+        }
+
+        self.replication.write().advance(max_seq)?;
+        Ok(entries.len() as u64)
+    }
+
+    pub fn replication_status(&self) -> ReplicationStatus {
+        let wal_seq = self.wal.read().sequence();
+        let rep = self.replication.read();
+        let last_primary = rep.last_primary_sequence();
+        ReplicationStatus {
+            role: self.role,
+            wal_sequence: wal_seq,
+            last_primary_sequence: last_primary,
+            lag_entries: wal_seq.saturating_sub(last_primary),
+        }
+    }
+
+    pub fn replication_last_applied(&self) -> Option<u64> {
+        self.replication.read().last_applied()
     }
 }
