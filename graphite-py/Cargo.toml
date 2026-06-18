@@ -1,0 +1,18 @@
+[package]
+name = "graphite-py"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Python bindings for Graphite TSDB"
+
+[lib]
+name = "graphite_tsdb"
+crate-type = ["cdylib"]
+
+[dependencies]
+graphite.workspace = true
+graphite-core.workspace = true
+pyo3 = { version = "0.23", features = ["extension-module"] }
+numpy = "0.23"
+serde_json.workspace = true
