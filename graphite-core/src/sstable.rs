@@ -52,6 +52,7 @@ pub struct SsTable {
     pub path: PathBuf,
     pub meta: SsTableMeta,
     file: File,
+    #[allow(dead_code)]
     index: Vec<IndexEntry>,
     bloom: BloomFilter,
     symbol_dict: SymbolDictionary,
@@ -376,9 +377,9 @@ impl SsTable {
         // Read column sizes from end of key data
         let col_sizes_offset = data.len() - 28;
         let mut col_sizes = [0u32; 7];
-        for i in 0..7 {
+        for (i, slot) in col_sizes.iter_mut().enumerate() {
             let start = col_sizes_offset + i * 4;
-            col_sizes[i] = u32::from_be_bytes(data[start..start + 4].try_into().unwrap());
+            *slot = u32::from_be_bytes(data[start..start + 4].try_into().unwrap());
         }
 
         let col_start = col_sizes_offset + 28;

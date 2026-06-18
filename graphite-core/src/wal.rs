@@ -66,7 +66,7 @@ impl Wal {
         buf.extend_from_slice(&VERSION.to_be_bytes());
         buf.extend_from_slice(&checksum.to_be_bytes());
         buf.extend_from_slice(&(payload.len() as u32).to_be_bytes());
-        buf.extend_from_slice(&(self.sequence as u64).to_be_bytes());
+        buf.extend_from_slice(&self.sequence.to_be_bytes());
         buf.extend_from_slice(&payload);
 
         self.file.write_all(&buf)?;
@@ -95,7 +95,7 @@ impl Wal {
             buf.extend_from_slice(&VERSION.to_be_bytes());
             buf.extend_from_slice(&checksum.to_be_bytes());
             buf.extend_from_slice(&(payload.len() as u32).to_be_bytes());
-            buf.extend_from_slice(&(self.sequence as u64).to_be_bytes());
+            buf.extend_from_slice(&self.sequence.to_be_bytes());
             buf.extend_from_slice(&payload);
 
             self.file.write_all(&buf)?;

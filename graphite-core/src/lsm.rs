@@ -166,6 +166,7 @@ impl LsmTree {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn insert_tick(&self, symbol: &str, timestamp: TimestampNs, open: f64, high: f64, low: f64, close: f64, volume: u64) -> Result<(), LsmError> {
         let tick = Tick {
             symbol_id: 0,

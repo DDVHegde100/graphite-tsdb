@@ -33,7 +33,7 @@ pub fn encode(values: &[f64]) -> Vec<u8> {
                 } else {
                     0
                 };
-                let nbytes = ((sig_bits + 7) / 8) as usize;
+                let nbytes = (sig_bits as usize).div_ceil(8);
                 let bytes = shifted.to_be_bytes();
                 buf.extend_from_slice(&bytes[8 - nbytes..]);
             } else {
@@ -83,7 +83,7 @@ pub fn decode(data: &[u8]) -> Vec<f64> {
                 let trailing = data[offset] as u32;
                 offset += 1;
                 let sig_bits = 64 - leading - trailing;
-                let nbytes = ((sig_bits + 7) / 8) as usize;
+                let nbytes = (sig_bits as usize).div_ceil(8);
                 if offset + nbytes > data.len() {
                     break;
                 }
