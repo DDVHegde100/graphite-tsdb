@@ -1,7 +1,9 @@
 //! LSM-tree: MemTable + WAL + SSTables + compaction.
 
+use crate::batch::{SymbolTick, TickBatch};
 use crate::block_cache::SharedBlockCache;
 use crate::compaction::CompactionManager;
+use crate::compaction_scheduler::spawn_background_compaction;
 use crate::compression::dictionary::SymbolDictionary;
 use crate::skip_list::SkipList;
 use crate::sstable::SsTable;
@@ -9,6 +11,7 @@ use crate::types::{Column, DbStats, Key, Tick, TimestampNs, WalRecord};
 use crate::wal::Wal;
 use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use thiserror::Error;
 
@@ -33,6 +36,10 @@ pub enum LsmError {
 pub struct LsmConfig {
     pub cache_size_mb: usize,
     pub memtable_flush_threshold: usize,
+    /// Run compaction in a background tokio thread when levels are full.
+    pub auto_compact: bool,
+    /// Interval between background compaction checks (milliseconds).
+    pub compact_interval_ms: u64,
 }
 
 impl Default for LsmConfig {
@@ -40,6 +47,8 @@ impl Default for LsmConfig {
         Self {
             cache_size_mb: 64,
             memtable_flush_threshold: MEMTABLE_FLUSH_THRESHOLD,
+            auto_compact: true,
+            compact_interval_ms: 5000,
         }
     }
 }
@@ -59,7 +68,7 @@ pub struct LsmTree {
 }
 
 impl LsmTree {
-    pub fn open(path: impl AsRef<Path>, config: LsmConfig) -> Result<Self, LsmError> {
+    pub fn open(path: impl AsRef<Path>, config: LsmConfig) -> Result<Arc<Self>, LsmError> {
         let data_dir = path.as_ref().to_path_buf();
         std::fs::create_dir_all(&data_dir)?;
 
@@ -70,7 +79,7 @@ impl LsmTree {
         let compaction = CompactionManager::new(&data_dir, symbol_dict.clone());
         let cache = SharedBlockCache::new(config.cache_size_mb);
 
-        let lsm = Self {
+        let lsm = Arc::new(Self {
             data_dir,
             memtable: RwLock::new(SkipList::new()),
             wal: RwLock::new(wal),
@@ -81,13 +90,17 @@ impl LsmTree {
             bloom_checks: AtomicU64::new(0),
             bloom_hits: AtomicU64::new(0),
             total_rows: AtomicU64::new(0),
-        };
+        });
 
         // Replay WAL
         lsm.recover_from_wal()?;
 
         // Load existing SSTables
         lsm.load_sstables()?;
+
+        if lsm.config.auto_compact {
+            spawn_background_compaction(Arc::clone(&lsm), lsm.config.compact_interval_ms);
+        }
 
         Ok(lsm)
     }
@@ -163,6 +176,69 @@ impl LsmTree {
             volume,
         };
         self.insert(symbol, tick)
+    }
+
+    /// Bulk insert columnar tick batch for one symbol (single WAL fsync).
+    pub fn insert_batch(&self, symbol: &str, batch: &TickBatch) -> Result<(), LsmError> {
+        if batch.is_empty() {
+            return Ok(());
+        }
+
+        let mut dict = self.symbol_dict.write();
+        let symbol_id = dict.get_or_insert(symbol);
+
+        let mut wal_records = Vec::with_capacity(batch.len());
+        let mut memtable = self.memtable.write();
+
+        for i in 0..batch.len() {
+            let tick = batch.tick_at(i, symbol_id);
+            wal_records.push(WalRecord::Insert(tick));
+            memtable.insert(tick);
+            self.total_rows.fetch_add(1, Ordering::Relaxed);
+        }
+
+        self.wal.write().append_batch(&wal_records)?;
+
+        let memtable_len = memtable.len();
+        drop(memtable);
+        if memtable_len >= self.config.memtable_flush_threshold {
+            self.flush_memtable()?;
+        }
+
+        Ok(())
+    }
+
+    /// Bulk insert ticks across multiple symbols (single WAL fsync).
+    pub fn insert_multi(&self, ticks: &[SymbolTick]) -> Result<(), LsmError> {
+        if ticks.is_empty() {
+            return Ok(());
+        }
+
+        let mut dict = self.symbol_dict.write();
+        let mut wal_records = Vec::with_capacity(ticks.len());
+        let mut memtable = self.memtable.write();
+
+        for tick in ticks {
+            let symbol_id = dict.get_or_insert(&tick.symbol);
+            let stored = tick.to_tick(symbol_id);
+            wal_records.push(WalRecord::Insert(stored));
+            memtable.insert(stored);
+            self.total_rows.fetch_add(1, Ordering::Relaxed);
+        }
+
+        self.wal.write().append_batch(&wal_records)?;
+
+        let memtable_len = memtable.len();
+        drop(memtable);
+        if memtable_len >= self.config.memtable_flush_threshold {
+            self.flush_memtable()?;
+        }
+
+        Ok(())
+    }
+
+    pub fn needs_compaction(&self) -> bool {
+        self.compaction.read().needs_compaction()
     }
 
     pub fn get(&self, symbol: &str, timestamp: TimestampNs) -> Result<Option<Tick>, LsmError> {
