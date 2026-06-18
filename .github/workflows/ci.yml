@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Run tests
-        run: cargo test --all --exclude graphite-py
+        run: cargo test --all --exclude graphite-py --features cold-tier
       - name: Build benchmarks
         run: cargo build -p graphite-bench --bins
 
@@ -28,4 +28,21 @@ jobs:
         with:
           components: clippy
       - name: Clippy
-        run: cargo clippy --all-targets --exclude graphite-py -- -D warnings
+        run: cargo clippy --all-targets --exclude graphite-py --features cold-tier -- -D warnings
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install maturin
+        run: pip install maturin pytest
+      - name: Build Python bindings
+        run: maturin build -m graphite-py/pyproject.toml --release
+      - name: Install and smoke test
+        run: |
+          pip install target/wheels/*.whl
+          python -c "import graphite; db = graphite.open('/tmp/graphite-ci'); db.insert('TEST', 1, 1.0, 1.0, 1.0, 1.0, 1); print(db.stats())"
