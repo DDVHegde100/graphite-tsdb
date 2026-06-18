@@ -77,6 +77,35 @@ impl Wal {
         Ok(self.sequence)
     }
 
+    /// Append multiple records with a single fsync at the end.
+    pub fn append_batch(&mut self, records: &[WalRecord]) -> Result<u64, WalError> {
+        for record in records {
+            let payload = serde_json::to_vec(record)
+                .map_err(|e| WalError::Serialize(e.to_string()))?;
+
+            let mut hasher = Hasher::new();
+            hasher.update(&payload);
+            let checksum = hasher.finalize();
+
+            let header_size = 4 + 2 + 4 + 8 + 4;
+            let record_size = header_size + payload.len();
+
+            let mut buf = Vec::with_capacity(record_size);
+            buf.extend_from_slice(&MAGIC.to_be_bytes());
+            buf.extend_from_slice(&VERSION.to_be_bytes());
+            buf.extend_from_slice(&checksum.to_be_bytes());
+            buf.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+            buf.extend_from_slice(&(self.sequence as u64).to_be_bytes());
+            buf.extend_from_slice(&payload);
+
+            self.file.write_all(&buf)?;
+            self.offset += record_size as u64;
+            self.sequence += 1;
+        }
+        self.file.sync_all()?;
+        Ok(self.sequence)
+    }
+
     /// Replay WAL from beginning for crash recovery.
     pub fn replay(&mut self) -> Result<Vec<WalRecord>, WalError> {
         let mut records = Vec::new();
