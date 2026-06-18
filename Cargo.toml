@@ -5,6 +5,7 @@ members = [
     "graphite",
     "graphite-py",
     "graphite-bench",
+    "graphite-cli",
 ]
 default-members = ["graphite"]
 
@@ -17,6 +18,7 @@ authors = ["Graphite Contributors"]
 [workspace.dependencies]
 graphite-core = { path = "graphite-core" }
 graphite = { path = "graphite" }
+clap = { version = "4.5", features = ["derive"] }
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
