@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0] - 2026-06-18
+
+### Added
+- `ScanStream` iterator — lazy SSTable loading without full range materialization
+- `DB::scan_stream`, `DB::count_range` for streaming scans
+- Cross-DB `compare_write` binary (Graphite + optional DuckDB/Influx/Timescale)
+- `SharedBlockCache` clone support for scan iterators
+
 ## [0.2.0] - 2026-06-18
 
 ### Added
