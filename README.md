@@ -240,8 +240,10 @@ For comparisons against InfluxDB, DuckDB, or TimescaleDB, run the same tick work
 use graphite::{DB, LsmConfig};
 
 let config = LsmConfig {
-    cache_size_mb: 128,              // LRU block cache size
-    memtable_flush_threshold: 10000, // rows before flush to L0
+    cache_size_mb: 128,
+    memtable_flush_threshold: 10000,
+    auto_compact: true,
+    compact_interval_ms: 5000,
 };
 
 let db = DB::open_with_config("./data", config)?;
@@ -272,11 +274,12 @@ QueryRoot (est. 100000 rows)
 
 ## Roadmap
 
-- [ ] Async compaction via tokio background task
-- [ ] Multi-symbol batch insert API
-- [ ] Native Polars DataFrame return in Python
+- [x] Async compaction via tokio background task
+- [x] Multi-symbol batch insert API
+- [x] Native Polars DataFrame return in Python
+- [x] ZSTD option for cold SSTable tiers (L1+ volumes)
 - [ ] Cross-DB benchmark harness (InfluxDB, DuckDB, TimescaleDB)
-- [ ] ZSTD option for cold SSTable tiers
+- [ ] Streaming iterator API for large range scans
 
 ---
 

@@ -6,6 +6,10 @@ license.workspace = true
 authors.workspace = true
 publish = false
 
+[lib]
+name = "graphite_bench"
+path = "src/lib.rs"
+
 [dependencies]
 graphite.workspace = true
 graphite-core.workspace = true

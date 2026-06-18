@@ -51,6 +51,25 @@ fn gql_explain() {
 }
 
 #[test]
+fn batch_insert_columns() {
+    let dir = tempdir().unwrap();
+    let db = DB::open(dir.path()).unwrap();
+
+    let batch = graphite_core::TickBatch {
+        timestamps: (0..500).map(|i| i as i64 * 1_000_000).collect(),
+        opens: vec![150.0; 500],
+        highs: vec![151.0; 500],
+        lows: vec![149.0; 500],
+        closes: vec![150.5; 500],
+        volumes: vec![100; 500],
+    };
+    db.insert_batch_columns("AAPL", &batch).unwrap();
+
+    let result = db.query_range("AAPL", 0, 499_000_000).unwrap();
+    assert_eq!(result.rows.len(), 500);
+}
+
+#[test]
 fn compaction_and_stats() {
     let dir = tempdir().unwrap();
     let db = DB::open(dir.path()).unwrap();
