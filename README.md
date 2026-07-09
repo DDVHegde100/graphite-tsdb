@@ -386,3 +386,4 @@ WebSocket at `ws://127.0.0.1:8080/ws` — send the same JSON per message; receiv
 ## License
 
 MIT — see [LICENSE](LICENSE).
+\n\n---\n\n**Author:** [Dhruv Hegde](https://github.com/DDVHegde100) · CS @ University of Michigan\n
